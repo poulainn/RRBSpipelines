@@ -1,0 +1,198 @@
+################ for creating the rule graph from the snakefile#########################
+#
+#warning: if any print commande in the script, the dag commande will fail!
+# update Project_id n the configfile
+#
+#snakemake --forceall --snakefile /datacit/03_TOOLS/PIPELINES/DNAmet_seq/snakemakes/rrbs_trimm.snake  --configfile /mnt/citprojects/CIT_PROJECTS_HS/Project_id/Data/Experiment_data/DNAmet_seq/03_Metadata/DNAmet_seq_mapping_Bismark_args.yaml  --rulegraph | dot -Tpdf -o ruledag.pdf
+#
+#########################################################################################
+
+
+################for creating the complete sample graph from the snakefile#########################
+#warning: if any print commande in the script, the dag commande will fail!
+# update Project_id n the configfile
+#/usr/local/bin/snakemake --forceall --snakefile /datacit/03_TOOLS/PIPELINES/DNAmet_seq/snakemakes/rrbs_trimm.snake  --configfile /mnt/citprojects/CIT_PROJECTS_HS/Project_id/Data/Experiment_data/DNAmet_seq/03_Metadata/DNAmet_seq_mapping_Bismark_args.yaml  --dag | dot -Tpdf -o dag.pdf
+#
+#########################################################################################
+
+
+################ Commande line to launch the snakemake on the HPC #########################
+# Warning: use the -np option to compile and check the snake/yaml consistency.
+#
+# snakemake -np -s /datacit/03_TOOLS/PIPELINES/DNAmet_seq/snakemakes/rrbs_trimm.snake  --configfile /mnt/citprojects/CIT_PROJECTS_HS/Project_id/Data/Experiment_data/DNAmet_seq/DNAmet_seq_mapping_Bismark_args.yaml
+#
+#the commande below will launch the snakemake on the cluster. please, update the "project_id" in the configfile
+#
+#/usr/local/bin/snakemake  -s /datacit/03_TOOLS/PIPELINES/DNAmet_seq/snakemakes/rrbs_trimm.snake --configfile /mnt/citprojects/CIT_PROJECTS_HS/project_id/Data/Experiment_data/DNAmet_seq/03_Metadata/DNAmet_seq_mapping_Bismark_args.yaml --cores 208 --cluster /datacit/11_INFORMATIQUE/slurm_files/slurm_scheduler.py --cluster-config /datacit/11_INFORMATIQUE/slurm_files/slurm.json
+#
+#########################################################################################
+
+############### To prepare genome for Bismark ##############
+#
+#This step has to be performed before Bismark, execute it on the genome folder of assembly to use. Any fasta file
+#in folder will be considered. Path to genome is genomed variable of config file.
+#
+#bismark_genome_preparation --path_to_aligner /usr/local/bin/bowtie2 /datacit/00_DATABANKS/ensembl_GRCh38
+#
+################################################################
+
+
+from os.path import join
+rawdir=config["rawdir"]
+newdir=config["newdir"]
+fname=config["samplelist"]
+genomed=config["genome"]
+with open(fname) as f:
+  RAWSAMPLES = f.readlines()
+
+pair=['R1', 'R2']
+
+RAWSAMPLES = [x.strip() for x in RAWSAMPLES]
+SAMPLES = []
+for s in RAWSAMPLES:
+	if not s.startswith('#'):
+		SAMPLES.append(s)
+
+rule all:
+	input:
+		expand(join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/CpG_context_{sample}_R1_trimmed_bismark_bt2_pe.txt.gz"), sample=SAMPLES),
+		expand(join(newdir,"02_QC/Mapping_qc/{sample}_trimmed/{sample}_trimmed_Mapping_qc.html"), sample=SAMPLES),
+		expand(join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R1.fastq_trimming_report.txt"),sample=SAMPLES),
+		expand(join(newdir, "02_QC/Rawfiles_qc/{sample}/{sample}_{pair}_fastqc.html"), sample=SAMPLES, pair=pair),
+		expand(join(newdir, "02_QC/Trimmed_qc/{sample}/{sample}_{pair}_trimmed_fastqc.html"), sample=SAMPLES, pair=pair)
+
+rule copyFile:
+	input:
+		join(rawdir, "{sample}_{pair}.fastq.gz")
+	output:
+		join(newdir, "01_Raw_files/{sample}_{pair}.fastq.gz")
+	params:
+		indir = config["rawdir"],
+		cdir = config["newdir"],
+		sample = "{sample}_{pair}.fastq.gz"
+	resources:
+		mem_mb=2000
+	message: "Copy of the fastq files"
+	shell:
+		"""
+		echo \"Copy of {params.sample}\"
+		mkdir -p {params.cdir}
+		mcp -r {params.indir}/{params.sample} {params.cdir}/01_Raw_files/
+		"""
+
+
+rule gz:
+	input:
+		join(newdir, "01_Raw_files/{sample}_{pair}.fastq.gz")
+	output:
+		temp(join(newdir,"01_Raw_files/{sample}_{pair}.fastq"))
+	resources:
+		mem_mb=2000
+	shell:
+		"gzip -d {input}"
+
+
+rule fastqc:
+	input:
+		join(newdir, "01_Raw_files/{sample}_{pair}.fastq")
+	output:
+		join(newdir, "02_QC/Rawfiles_qc/{sample}/{sample}_{pair}_fastqc.html")
+	params:
+		outdir=directory(join(newdir, "02_QC/Rawfiles_qc/{sample}"))
+	resources:
+		mem_mb=500
+	shell:
+		"mkdir -p {params.outdir} && /usr/local/bin/fastqc -o {params.outdir} --extract {input}"
+
+rule trimm:
+	input:
+		r1 = join(newdir, "01_Raw_files/{sample}_R1.fastq"),
+		r2 = join(newdir, "01_Raw_files/{sample}_R2.fastq")
+	output:
+		o1=join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R1.fastq_trimming_report.txt"),
+		o2=join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R2.fastq_trimming_report.txt"),
+		o3=temp(join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R1_trimmed.fastq")),
+		o4=temp(join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R2_trimmed.fastq"))
+	resources:
+		mem_mb=100
+	params:
+		outfile = directory(join(newdir, "02_QC/Trimming_output/{sample}/")),
+		Rawout1 = join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R1_val_1.fq"),
+		Rawout2 = join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R2_val_2.fq")
+	shell:
+		"""
+		mkdir -p {params.outfile} && trim_galore --illumina --rrbs --paired {input.r1} {input.r2} \
+		-o {params.outfile} -q 20 --phred33 --length 20
+		mv {params.Rawout1} {output.o3}
+		mv {params.Rawout2} {output.o4}
+		"""
+
+rule posttrim_fastqc:
+	input:
+		join(newdir, "02_QC/Trimming_output/{sample}/{sample}_{pair}_trimmed.fastq")
+	output:
+		join(newdir,"02_QC/Trimmed_qc/{sample}/{sample}_{pair}_trimmed_fastqc.html")
+	params:
+		outdir = directory(join(newdir, "02_QC/Trimmed_qc/{sample}"))
+	resources:
+		mem_mb=500
+	shell:
+		"mkdir -p {params.outdir} && /usr/local/bin/fastqc -o {params.outdir} --extract {input}"
+
+rule Bismark:
+	input:
+		R1 = join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R1_trimmed.fastq"),
+		R2 = join(newdir, "02_QC/Trimming_output/{sample}/{sample}_R2_trimmed.fastq")
+	output:
+		join(newdir, "04_Processed/Mapping_output/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe.bam"),
+		join(newdir, "04_Processed/Mapping_output/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_PE_report.txt")
+	params:
+		genomedir= genomed,
+		folder= directory(join(newdir, "04_Processed/Mapping_output/{sample}_trimmed"))
+	resources:
+		mem_mb=45000
+	shell:
+		"""
+		mkdir -p {params.folder} 
+		bismark -N 0 -L 20 -X 500 -I 0 --genome {params.genomedir} --fastq -1 {input.R1} -2 {input.R2} \
+		--multicore 4 -o {params.folder} --bam 
+		"""
+
+
+rule methylation_extractor:
+	input:
+		join(newdir,"04_Processed/Mapping_output/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe.bam")
+	output:
+		join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/CpG_context_{sample}_R1_trimmed_bismark_bt2_pe.txt.gz"),
+		join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe_splitting_report.txt"),
+		join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe.M-bias.txt")
+	params:
+		folder=directory(join(newdir, "04_Processed/Methylation_call/{sample}_trimmed")),
+		genomedir=genomed
+	resources:
+		mem_mb=3000
+	shell:
+		"bismark_methylation_extractor --gzip --bedGraph --genome_folder {params.genomedir} \
+		 {input} -o {params.folder} --no_overlap --comprehensive"
+
+
+
+rule bismark_qc:
+	input:
+		methReport = join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe_splitting_report.txt"),
+		alignReport = join(newdir, "04_Processed/Mapping_output/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_PE_report.txt"),
+		mbias = join(newdir, "04_Processed/Methylation_call/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe.M-bias.txt")
+	output:
+		mapqc=join(newdir,"02_QC/Mapping_qc/{sample}_trimmed/{sample}_trimmed_Mapping_qc.html")
+	params:
+		basename="{sample}_trimmed_Mapping_qc.html",
+		outdir=join(newdir, "02_QC/Mapping_qc/{sample}_trimmed")
+	resources:
+		mem_mb=100
+	shell:
+		"""
+		mkdir -p {params.outdir}
+		bismark2report --alignment_report {input.alignReport} --splitting_report {input.methReport} \
+		--mbias_report {input.mbias} --nucleotide_report none -o {params.basename} --dir {params.outdir}
+		"""
+

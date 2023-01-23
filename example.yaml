@@ -1,0 +1,13 @@
+
+#rawdir: the original raw directory, on the nas008
+#newdir: the project's RNAseq dir, always on /datacompute/. no need to create sub-directories. only update the project_id
+
+
+rawdir: /datacit/01_PROJECTS/CIT_PROJECTS_HS/HS8_RAML_Penard-Lacronique/Data/Experiment_data/DNAmet_seq/01_Raw_files
+newdir:  /datacompute/RAML_DNAmet
+genome: /datacit/01_PROJECTS/CIT_PROJECTS_HS/HS8_RAML_Penard-Lacronique/Data/Experiment_data/DNAmet_seq/03_Metadata/genomeref
+samplelist: /datacit/01_PROJECTS/CIT_PROJECTS_HS/HS8_RAML_Penard-Lacronique/Data/Experiment_data/DNAmet_seq/03_Metadata/samplelist_RRoxBS.txt
+mval: 1 #0 not to generate mval matrix
+betaval: 1 #0 not to generate betaval matrix
+mincov: 3 
+

@@ -1,0 +1,35 @@
+from os.path import join
+rawdir=config["rawdir"]
+newdir=config["newdir"]
+fname=config["samplelist"]
+with open(fname) as f:
+    RAWSAMPLES = f.readlines()
+
+pair=['R1','R2']
+
+RAWSAMPLES = [x.strip() for x in RAWSAMPLES]
+SAMPLES=[]
+for s in RAWSAMPLES:
+    if not s.startswith('#'):
+            SAMPLES.append(s)
+
+rule all:
+    input:
+        join(newdir,"04_Processed/RData/matrix_met.RData")
+
+rule getmatrix:
+    input:
+        expand(join(newdir,"04_Processed/Methylation_call/{sample}_trimmed/{sample}_R1_trimmed_bismark_bt2_pe.bismark.cov.gz"),sample=SAMPLES)
+    output:
+        join(newdir, "04_Processed/RData/matrix_met.RData")
+    resources:
+        mem_mb=32000
+    params:
+        matrixScript = join(rawdir,"03_Metadata", "rrbs","include","makeMatrix.R"),
+        outpath = join(config["newdir"],"04_Processed/RData/"),
+        samplelist = SAMPLES,
+        mincov=config["mincov"],
+        betaval=config["betaval"],
+        mval=config["mval"]
+    shell:
+        "mkdir -p {params.outpath} && Rscript --vanilla {params.matrixScript} {params.outpath} {params.betaval} {params.mval} {params.mincov} {input} {params.samplelist}"
